@@ -101,6 +101,7 @@ def perform_ddg_search(query):
     Asynchronously perform a DuckDuckGo search for the given query.
     Returns a list of result URLs.
     """
+
     logger.info("perform_ddg_search")
 
     try:
@@ -118,17 +119,21 @@ async def fetch_webpage_text_async(session, url):
     """
     Asynchronously retrieve the text content of a webpage using direct HTTP GET.
     """
+
+    logger.info("fetch_webpage_text_async")
+
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     }
+
     try:
         async with session.get(url, headers=headers, timeout=20) as resp:
             if resp.status == 200:
                 return await resp.text()
-            print(f"Failed to fetch {url}: {resp.status}")
+            logger.info("Failed to fetch %s: %s", url, resp.status)
             return ""
     except Exception as e:
-        print(f"Error fetching {url}: {e}")
+        logger.info("Error fetching %s: %s", url, e)
         return ""
 
 async def is_page_useful_async(session, user_query, page_text):
@@ -137,7 +142,7 @@ async def is_page_useful_async(session, user_query, page_text):
     The LLM must reply with exactly "Yes" or "No".
     """
 
-    info = page_text[:20000]
+    logger.info("is_page_useful_async")
 
     json_key = "useful"
     prompt = (
@@ -149,8 +154,9 @@ async def is_page_useful_async(session, user_query, page_text):
     )
     messages = [
         {"role": "system", "content": "You are a strict and concise evaluator of research relevance."},
-        {"role": "user", "content": f"User Query: {user_query}\n\nWebpage Content (first 20000 characters):\n{info}\n\n{prompt}"}
+        {"role": "user", "content": f"User Query: {user_query}\n\nWebpage Content:\n{page_text}\n\n{prompt}"}
     ]
+
     response = await call_llamacpp_async(session, messages)
     logger.info("response: %s", response)
     usefulness = None
@@ -178,6 +184,8 @@ async def extract_relevant_context_async(session, user_query, search_query, page
     have the LLM extract all information relevant for answering the query.
     """
 
+    logger.info("extract_relevant_context_async")
+
     json_key = "relevant"
     prompt = (
         "You are an expert information extractor. Given the user's query, the search query that led to this page, "
@@ -188,8 +196,14 @@ async def extract_relevant_context_async(session, user_query, search_query, page
     )
     messages = [
         {"role": "system", "content": "You are an expert in extracting and summarizing relevant information."},
-        {"role": "user", "content": f"User Query: {user_query}\nSearch Query: {search_query}\n\nWebpage Content (first 20000 characters):\n{page_text[:20000]}\n\n{prompt}"}
+        {"role": "user", "content": f"User Query: {user_query}\n"
+         "Search Query: {search_query}\n"
+         "\nWebpage Content:"
+         "\n{page_text}\n"
+         "\n{prompt}"
+        }
     ]
+
     response = await call_llamacpp_async(session, messages)
     logger.info("response: %s", response)
     relevant_ctx = None
@@ -278,6 +292,9 @@ async def generate_final_report_async(session, user_query, all_contexts):
     """
     Generate the final comprehensive report using all gathered contexts.
     """
+
+    logger.info("generate_final_report_async")
+
     context_combined = "\n".join(all_contexts)
     prompt = (
         "You are an expert researcher and report writer. Based on the gathered contexts below and the original query, "
@@ -328,12 +345,10 @@ async def async_main():
                         unique_links[link] = query
 
             print(f"Found {len(unique_links)} unique links for processing")
-            #return #HEREWEGO: debug stop
 
             # Process all links concurrently
             link_tasks = [process_link(session, link, user_query, unique_links[link]) for link in unique_links]
             link_results = await asyncio.gather(*link_tasks)
-            return #HEREWEGO: debug stop
 
             # Aggregate valid contexts
             iteration_contexts = [res for res in link_results if res]
