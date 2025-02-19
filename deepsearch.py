@@ -4,6 +4,7 @@ import json
 import logging
 import re
 from duckduckgo_search import DDGS
+from html2text import HTML2Text
 
 logger = logging.getLogger('server_logger')
 logger.setLevel(logging.INFO)
@@ -207,16 +208,29 @@ async def process_link(session, link, user_query, search_query):
     """
     Process a single link: fetch its content, judge its usefulness, and extract context if useful.
     """
+
+    logger.info("process_link")
+
     logger.info("Fetching content from: %s", link)
-    page_text = await fetch_webpage_text_async(session, link)
-    if not page_text:
+    page = await fetch_webpage_text_async(session, link)
+    if not page:
         return None
+
+    try:
+        page_text = HTML2Text().handle(page)
+        logger.info("Raw page %s size: %s, its text size: %s", link, len(page), len(page_text))
+    except Exception as e:
+        logger.info("Error converting page to text: %s", e)
+        return None
+
+    logger.info("Estimating page usefulness %s", link)
     useful = await is_page_useful_async(session, user_query, page_text)
     logger.info("Page usefulness for %s: %s", link, useful)
+
     if useful == "Yes":
         context = await extract_relevant_context_async(session, user_query, search_query, page_text)
         if context:
-            logger.info("Extracted context from %s (first 200 chars): %s", link, context[:200])
+            logger.info("Extracted context from %s: %s", link, context)
             return context
     return None
 
