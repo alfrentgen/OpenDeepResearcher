@@ -60,15 +60,17 @@ async def call_llamacpp_async(session, messages):
         logger.info("Error calling llama.cpp: %s", e)
         return None
 
-async def generate_search_queries_async(session, user_query):
+async def generate_search_queries_async(session, user_query, n_queries = 4):
     """
-    Ask the LLM to produce up to four precise search queries (in Python list format)
+    Ask the LLM to produce up to 'n_queries' precise search queries (in Python list format)
     based on the user’s query.
     """
 
+    logger.info("generate_search_queries_async")
+
     json_key = "queries"
     prompt = (
-        "You are an expert research assistant. Given the user's query, generate up to four distinct, "
+        f"You are an expert research assistant. Given the user's query, generate up to {n_queries} distinct, "
         "precise search queries that would help gather comprehensive information on the topic. "
         "Return a JSON object that contains a list of queries precisely in the following format: "
         f'{{"{json_key}" : ["query1", "query2", "query3"]}}'
@@ -77,10 +79,10 @@ async def generate_search_queries_async(session, user_query):
         {"role": "system", "content": "You are a helpful and precise research assistant."},
         {"role": "user", "content": f"User Query: {user_query}\n\n{prompt}"}
     ]
-    logger.info("generate_search_queries_async")
 
     response = await call_llamacpp_async(session, messages)
     logger.info("response: %s", response)
+
     search_queries = []
     if response:
         try:
@@ -218,33 +220,45 @@ async def process_link(session, link, user_query, search_query):
             return context
     return None
 
-async def get_new_search_queries_async(session, user_query, previous_search_queries, all_contexts):
+async def get_new_search_queries_async(session, user_query, previous_search_queries, all_contexts, n_queries = 4):
     """
     Determine if additional search queries are needed and return new queries or empty string.
     """
+
+    logger.info("get_new_search_queries_async")
+
     context_combined = "\n".join(all_contexts)
     prompt = (
         "You are an analytical research assistant. Based on the original query, the search queries performed so far, "
         "and the extracted contexts from webpages, determine if further research is needed. "
-        "If further research is needed, provide up to four new search queries as a Python list. "
+        f"If further research is needed, provide up to {n_queries} new search queries as a Python list. "
         "If no further research is needed, respond with exactly ."
     )
+    json_key = "queries"
+
     messages = [
         {"role": "system", "content": "You are a systematic research planner."},
-        {"role": "user", "content": f"User Query: {user_query}\nPrevious Search Queries: {previous_search_queries}\n\nExtracted Relevant Contexts:\n{context_combined}\n\n{prompt}"}
+        {"role": "user", "content": f"User Query: {user_query}\n"
+        "Previous Search Queries: {previous_search_queries}\n"
+        "\nExtracted Relevant Contexts:\n{context_combined}\n"
+        "\n{prompt}\n"
+        "Return a JSON object that contains a list of queries precisely in the following format: "
+        f'{{"{json_key}" : ["query1", "query2", "query3"]}}'}
     ]
+
     response = await call_llamacpp_async(session, messages)
+
+    search_queries = []
     if response:
-        cleaned = response.strip()
-        if cleaned == "":
-            return ""
         try:
-            new_queries = eval(cleaned)
-            return new_queries if isinstance(new_queries, list) else []
+            search_queries = extract_json(response).get(json_key, [])
+            logger.info(f"Parsed search query list: {search_queries}")
+            if not isinstance(search_queries, list):
+                raise Exception(f"Could not parse a search query list the response.")
         except Exception as e:
-            print("Error parsing new search queries:", e, "\nResponse:", response)
-            return []
-    return []
+            logger.info(f"Error parsing new search queries: {e}")
+
+    return search_queries
 
 async def generate_final_report_async(session, user_query, all_contexts):
     """
