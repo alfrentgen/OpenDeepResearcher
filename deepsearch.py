@@ -1,7 +1,9 @@
 import asyncio
+import argparse
 import aiohttp
 import json
 import logging
+import os
 import re
 from duckduckgo_search import DDGS
 from html2text import HTML2Text
@@ -96,7 +98,7 @@ async def generate_search_queries_async(session, user_query, n_queries = 4):
 
     return search_queries
 
-def perform_ddg_search(query):
+def perform_ddg_search(query, max_links_per_query=5):
     """
     Asynchronously perform a DuckDuckGo search for the given query.
     Returns a list of result URLs.
@@ -107,7 +109,7 @@ def perform_ddg_search(query):
     try:
         with DDGS() as ddgs:
             results = []
-            for result in ddgs.text(query, max_results=5):
+            for result in ddgs.text(query, max_results=max_links_per_query):
                 logger.info(f"Search result for the query='{query}':\n{result}")
                 results.append(result['href'])
             return results
@@ -312,29 +314,45 @@ async def generate_final_report_async(session, user_query, all_contexts):
 # Main Asynchronous Routine
 # =========================
 
-async def async_main():
-    user_query = input("Enter your research query/topic: ").strip()
-    iter_limit_input = input("Enter maximum number of iterations (default 5): ").strip()
-    iteration_limit = int(iter_limit_input) if iter_limit_input.isdigit() else 5
+async def async_main(config):
+    if "user_query" not in config:
+        config["user_query"] = input("Enter your research query/topic: ").strip()
+    else:
+        user_query_entry = config["user_query"]
+        if "filename" in user_query_entry:
+            with open(user_query_entry["filename"], "r", encoding="utf-8") as user_query_file:
+                config["user_query"] = user_query_file.read()
+        else:
+            config["user_query"] = user_query_entry
+
+    config["n_iterations"] = config["n_iterations"] if "n_iterations" in config else 2
+    config["n_queries"] = config["n_queries"] if "n_queries" in config else 2
+    config["max_links_per_query"] = config["max_links_per_query"] if "max_links_per_query" in config else 5
+    logger.info(config)
+
+    user_query = config["user_query"]
+    n_iterations = config["n_iterations"]
+    n_queries = config["n_queries"]
+    max_links = config["max_links_per_query"]
 
     aggregated_contexts = []
     all_search_queries = []
     iteration = 0
 
     async with aiohttp.ClientSession() as session:
-        new_search_queries = await generate_search_queries_async(session, user_query)
+        new_search_queries = await generate_search_queries_async(session, user_query, n_queries)
         if not new_search_queries:
             print("No initial search queries generated. Exiting.")
             return
         all_search_queries.extend(new_search_queries)
 
-        while iteration < iteration_limit:
+        while iteration < n_iterations:
             print(f"\n=== Iteration {iteration + 1} ===")
 
             # Perform searches for all current queries
             #search_tasks = [perform_search_async(query) for query in new_search_queries]
             #search_results = await asyncio.gather(*search_tasks)
-            search_results = [perform_ddg_search(query) for query in new_search_queries]
+            search_results = [perform_ddg_search(query, max_links) for query in new_search_queries]
 
             # Map links to their original search queries
             unique_links = {}
@@ -378,8 +396,30 @@ async def async_main():
         print("\n==== FINAL REPORT ====\n")
         print(final_report)
 
+def read_config_file(config_filename: str):
+    with open(config_filename) as f:
+        config = json.load(f)
+    return config
+
 def main():
-    asyncio.run(async_main())
+    def valid_file(filename):
+        """Check if the file exists and return the path"""
+
+        if not os.path.isfile(filename):
+            raise argparse.ArgumentTypeError(f"File '{filename}' not found")
+        return filename
+
+    parser = argparse.ArgumentParser(
+        prog='Deepsearch',
+        description='Performs search and analysis on the Internet using LLM',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+
+    parser.add_argument("-cfg", "--config_file", type=valid_file, help="Path to the JSON configuration file")
+    args = parser.parse_args()
+    config = read_config_file(args.config_file)
+
+    asyncio.run(async_main(config))
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,7 @@
+{
+"n_iterations" : 2,
+"n_queries" : 4,
+"max_links_per_query" : 3,
+"user_query" : { "filename": "user_query.txt"}
+}
+
