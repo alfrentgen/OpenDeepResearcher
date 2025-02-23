@@ -165,9 +165,10 @@ async def is_page_useful_async(session, user_query, page_text):
     if response:
         try:
             usefulness = extract_json(response).get(json_key, None)
-            logger.info("The information can be considered: %s", usefulness)
             if not usefulness:
-                raise Exception(f"Could not dermine if the {info} in useful.")
+                raise Exception(f"Could not dermine if the following content is useful:\n{page_text}\n")
+
+            logger.info("The information can be considered: %s", usefulness)
             if usefulness in ["Yes", "No"]:
                 return usefulness
             else:
@@ -199,10 +200,10 @@ async def extract_relevant_context_async(session, user_query, search_query, page
     messages = [
         {"role": "system", "content": "You are an expert in extracting and summarizing relevant information."},
         {"role": "user", "content": f"User Query: {user_query}\n"
-         "Search Query: {search_query}\n"
-         "\nWebpage Content:"
-         "\n{page_text}\n"
-         "\n{prompt}"
+         f"Search Query: {search_query}\n"
+         f"\nWebpage Content:"
+         f"\n{page_text}\n"
+         f"\n{prompt}"
         }
     ]
 
@@ -212,9 +213,10 @@ async def extract_relevant_context_async(session, user_query, search_query, page
     if response:
         try:
             relevant_ctx = extract_json(response).get(json_key, None)
-            logger.info("Extracted relevant information: %s", relevant_ctx)
             if not relevant_ctx:
                 raise Exception(f"Could not extract relevant information from: {page_text}.", )
+
+            logger.info("Extracted relevant information: %s", relevant_ctx)
         except Exception as e:
             logger.info("Error extracting relevant information: %s", e)
 
