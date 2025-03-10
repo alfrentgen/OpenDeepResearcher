@@ -57,7 +57,7 @@ async def call_llamacpp_async(session, messages):
                     return None
             else:
                 text = await resp.text()
-                logger.info("llama.cpp API error: %s - %s",resp.status,text)
+                logger.info("llama.cpp API error: %s - %s", resp.status, text)
                 return None
     except Exception as e:
         logger.info("Error calling llama.cpp: %s", e)
@@ -79,8 +79,8 @@ async def generate_search_queries_async(session, user_query, n_queries = 4):
         f'{{"{json_key}" : ["query1", "query2", "query3"]}}'
     )
     messages = [
-        {"role": "system", "content": "You are a helpful and precise research assistant."},
-        {"role": "user", "content": f"User Query: {user_query}\n\n{prompt}"}
+        {"role": "system", "content": f"{prompt}"},# "You are a helpful and precise research assistant."},
+        {"role": "user", "content": f"User Query: {user_query}"} #\n\n{prompt}"}
     ]
 
     response = await call_llamacpp_async(session, messages)
@@ -114,7 +114,7 @@ def perform_ddg_search(query, max_links_per_query=5):
                 results.append(result['href'])
             return results
     except Exception as e:
-        print("Error performing search:", e)
+        logger.info("Error performing search: %s", e)
         return []
 
 async def fetch_webpage_text_async(session, url):
@@ -195,7 +195,7 @@ async def extract_relevant_context_async(session, user_query, search_query, page
         "and the webpage content, extract all pieces of information that are relevant to answering the user's query. "
         "Return only the relevant context as a valid JSON precisely in the following format: "
         f'{{"{json_key}" : "<>"}}'
-        ", substitute <> with a plain text string without commentaries."
+        ", substitute <> with a plain text containing the extarcted information without commentaries."
     )
     messages = [
         {"role": "system", "content": "You are an expert in extracting and summarizing relevant information."},
@@ -344,12 +344,12 @@ async def async_main(config):
     async with aiohttp.ClientSession() as session:
         new_search_queries = await generate_search_queries_async(session, user_query, n_queries)
         if not new_search_queries:
-            print("No initial search queries generated. Exiting.")
+            logger.info("No initial search queries generated. Exiting.")
             return
         all_search_queries.extend(new_search_queries)
 
         while iteration < n_iterations:
-            print(f"\n=== Iteration {iteration + 1} ===")
+            logger.info(f"\n=== Iteration {iteration + 1} ===")
 
             # Perform searches for all current queries
             #search_tasks = [perform_search_async(query) for query in new_search_queries]
@@ -364,7 +364,7 @@ async def async_main(config):
                     if link not in unique_links:
                         unique_links[link] = query
 
-            print(f"Found {len(unique_links)} unique links for processing")
+            logger.info(f"Found {len(unique_links)} unique links for processing")
 
             # Process all links concurrently
             link_tasks = [process_link(session, link, user_query, unique_links[link]) for link in unique_links]
@@ -373,7 +373,7 @@ async def async_main(config):
             # Aggregate valid contexts
             iteration_contexts = [res for res in link_results if res]
             aggregated_contexts.extend(iteration_contexts)
-            print(f"Added {len(iteration_contexts)} new contexts")
+            logger.info(f"Added {len(iteration_contexts)} new contexts")
 
             # Check if more research is needed
             new_search_queries = await get_new_search_queries_async(
@@ -381,22 +381,22 @@ async def async_main(config):
             )
 
             if new_search_queries == "":
-                print("Research complete according to LLM assessment")
+                logger.info("Research complete according to LLM assessment")
                 break
             elif new_search_queries:
-                print(f"Generated {len(new_search_queries)} new search queries")
+                logger.info(f"Generated {len(new_search_queries)} new search queries")
                 all_search_queries.extend(new_search_queries)
             else:
-                print("No new search queries generated")
+                logger.info("No new search queries generated")
                 break
 
             iteration += 1
 
         # Generate final report
-        print("\nGenerating final report...")
+        logger.info("\nGenerating final report...")
         final_report = await generate_final_report_async(session, user_query, aggregated_contexts)
-        print("\n==== FINAL REPORT ====\n")
-        print(final_report)
+        logger.info("\n==== FINAL REPORT ====\n")
+        logger.info(final_report)
 
 def read_config_file(config_filename: str):
     with open(config_filename) as f:
