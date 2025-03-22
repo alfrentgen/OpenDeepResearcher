@@ -7,6 +7,7 @@ import os
 import re
 from duckduckgo_search import DDGS
 from html2text import HTML2Text
+from time import sleep
 
 logger = logging.getLogger('server_logger')
 logger.setLevel(logging.INFO)
@@ -98,24 +99,34 @@ async def generate_search_queries_async(session, user_query, n_queries = 4):
 
     return search_queries
 
-def perform_ddg_search(query, max_links_per_query=5):
+def perform_ddg_search(query, max_links_per_query=5, max_retries=5):
     """
     Asynchronously perform a DuckDuckGo search for the given query.
     Returns a list of result URLs.
     """
 
-    logger.info("perform_ddg_search")
+    logger.info("perform_ddg_search for: '%s'", query)
 
-    try:
-        with DDGS() as ddgs:
-            results = []
-            for result in ddgs.text(query, max_results=max_links_per_query):
-                logger.info(f"Search result for the query='{query}':\n{result}")
-                results.append(result['href'])
-            return results
-    except Exception as e:
-        logger.info("Error performing search: %s", e)
-        return []
+    max_retries = max(1, max_retries)
+    base_delay = 2 # secs
+    results = []
+    for retry in range(max_retries):
+        delay = base_delay * (2 ** retry)  # Exponential backoff
+        sleep(delay)
+        try:
+            with DDGS() as ddgs:
+                for result in ddgs.text(query, max_results=max_links_per_query):
+                    logger.info("Search result for the query='%s':\n%s", query, result)
+                    results.append(result['href'])
+            break
+        except Exception as e:
+            if 'Ratelimit' in str(e) and retry < max_retries:
+                logger.info("Retry search due to: %s", e)
+                continue
+
+            logger.info("Error performing search: %s", e)
+
+    return results
 
 async def fetch_webpage_text_async(session, url):
     """
@@ -336,6 +347,7 @@ async def async_main(config):
     n_iterations = config["n_iterations"]
     n_queries = config["n_queries"]
     max_links = config["max_links_per_query"]
+    max_retries = config["max_retries"]
 
     aggregated_contexts = []
     all_search_queries = []
@@ -354,7 +366,7 @@ async def async_main(config):
             # Perform searches for all current queries
             #search_tasks = [perform_search_async(query) for query in new_search_queries]
             #search_results = await asyncio.gather(*search_tasks)
-            search_results = [perform_ddg_search(query, max_links) for query in new_search_queries]
+            search_results = [perform_ddg_search(query, max_links, max_retries) for query in new_search_queries]
 
             # Map links to their original search queries
             unique_links = {}
